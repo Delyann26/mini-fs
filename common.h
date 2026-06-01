@@ -1,6 +1,6 @@
 #ifndef COMMON_H
 #define COMMON_H
-
+#include <stdint.h>
 #define FS_MAGIC 0x12345678
 
 #define BLOCK_SIZE 4096
@@ -26,7 +26,6 @@
 #define INODE_TABLE_BLOCK_START 3
 #define DATA_BLOCK_START 8
 
-#define FS_SUCCESS 0
-#define FS_ERROR -1
+#define INVALID_BLOCK 0
 
 #endif

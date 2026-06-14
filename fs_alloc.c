@@ -66,7 +66,7 @@ uint32_t fs_allocate_data_block(Disk *disk) {
         return UINT32_MAX;
     }
     if (disk_write_block(disk, DATA_BITMAP_BLOCK, data_bitmap) == -1) {
-        // writing inode bitmap to disk failed
+        // writing data bitmap to disk failed
         return UINT32_MAX;
     }
     return free_index + DATA_BLOCK_START;

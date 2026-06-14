@@ -43,6 +43,7 @@ int disk_create(Disk *disk, const char *path) {
     }
     return 0;
 }
+
 int disk_open(Disk *disk, const char *path) {
     if (disk == NULL || path == NULL) {
         return -1;
@@ -63,6 +64,7 @@ int disk_open(Disk *disk, const char *path) {
     }
     return 0;
 }
+
 int disk_close(Disk *disk) {
     if (disk == NULL || disk->fd == -1) {
         return -1;
@@ -73,6 +75,7 @@ int disk_close(Disk *disk) {
     disk->fd = -1;
     return 0;
 }
+
 int disk_read_block(Disk *disk, size_t block_index, void *buffer) {
     if (disk == NULL || disk->fd == -1 || block_index >= MAXIMUM_BLOCKS || buffer == NULL) {
         return -1;
@@ -109,6 +112,5 @@ int disk_write_block(Disk *disk, size_t block_index, const void *buffer) {
         }
         written_so_far += written_bytes;
     }
-
     return 0;
 }

@@ -31,9 +31,7 @@ static void reserve_root_inode(Disk *disk) {
     assert(disk_write(disk, bitmap, INODE_BITMAP_BLOCK) == FS_OK);
 }
 
-/* --------------------------------------------------------- */
-/* INODE ALLOCATION                                          */
-/* --------------------------------------------------------- */
+// INODE ALLOCATION
 
 static void test_allocate_inode(void) {
     Disk disk;
@@ -200,9 +198,7 @@ static void test_allocate_inode_null_arguments(void) {
 
 static void test_free_inode_null_disk(void) { assert(fs_free_inode(NULL, 1) == FS_ERR_NULL); }
 
-/* --------------------------------------------------------- */
-/* DATA BLOCK ALLOCATION                                     */
-/* --------------------------------------------------------- */
+// DATA BLOCK ALLOCATION
 
 static void test_allocate_data_block(void) {
     Disk disk;

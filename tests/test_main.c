@@ -1,4 +1,5 @@
 #include "test_bitmap.h"
+#include "test_directory.h"
 #include "test_disk.h"
 #include "test_filesystem.h"
 #include "test_fs_alloc.h"
@@ -15,6 +16,7 @@ int main(void) {
     test_inode_table();
     test_fs_alloc();
     test_filesystem();
+    test_directory();
     printf("All tests passed\n");
     return 0;
 }

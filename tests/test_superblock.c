@@ -153,7 +153,7 @@ void test_superblock(void) {
     test_superblock_null_arguments();
     test_superblock_closed_disk();
 
-    remove(TEST_DISK_PATH);
+    unlink(TEST_DISK_PATH);
 
     printf("Superblock: All tests passed\n");
 }

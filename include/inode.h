@@ -10,7 +10,7 @@ typedef struct Inode {
     uint32_t size;
 
     // An inode data-block pointer is valid only if it lies in [USER_DATA_BLOCK_START,
-    // MAXIMUM_BLOCKS - 1]; 0 means unassigned.
+    // MAXIMUM_BLOCKS - 1]; INVALID_BLOCK (0) means unassigned.
     uint32_t direct_blocks[INODE_DIRECT_POINTERS_COUNT];
     uint32_t indirect_block;
 } Inode;

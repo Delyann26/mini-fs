@@ -1,10 +1,17 @@
 #include "directory.h"
 #include "fs_alloc.h"
 #include "inode_table.h"
-#include "math.h"
+#include <math.h>
+#include <stdbool.h>
 #include <string.h>
 
-static int directory_ensure_data_block(Disk *disk, Inode *dir_inode, size_t logical_block_index, uint32_t *physical_block) {
+static int directory_ensure_data_block(
+    Disk *disk, Inode *dir_inode, size_t logical_block_index, uint32_t *physical_block, bool *created_data_block, bool *created_indirect_block) {
+    if (disk == NULL || dir_inode == NULL || physical_block == NULL || created_data_block == NULL || created_indirect_block == NULL) {
+        return FS_ERR_NULL;
+    }
+    *created_data_block = false;
+    *created_indirect_block = false;
     size_t maximum_blocks_supported = INODE_DIRECT_POINTERS_COUNT + INDIRECT_POINTERS_PER_BLOCK;
     if (logical_block_index >= maximum_blocks_supported) {
         return FS_ERR_DIRECTORY_IS_FULL;
@@ -13,16 +20,18 @@ static int directory_ensure_data_block(Disk *disk, Inode *dir_inode, size_t logi
     int res;
     if (logical_block_index < INODE_DIRECT_POINTERS_COUNT) { // DIRECT
         uint32_t block = dir_inode->direct_blocks[logical_block_index];
-        if (block == INVALID_BLOCK) {
+        if (block == INVALID_BLOCK) { // unassigned
             res = fs_allocate_data_block(disk, &block);
             if (res != FS_OK) {
                 return res;
             }
+            *created_data_block = true;
             uint8_t empty_block[BLOCK_SIZE];
             memset(empty_block, 0, sizeof(empty_block));
             res = disk_write(disk, empty_block, block);
             if (res != FS_OK) {
                 fs_free_data_block(disk, block);
+                *created_data_block = false;
                 return res;
             }
             dir_inode->direct_blocks[logical_block_index] = block;
@@ -35,6 +44,116 @@ static int directory_ensure_data_block(Disk *disk, Inode *dir_inode, size_t logi
     }
 
     // INDIRECT
+    size_t indirect_index = logical_block_index - INODE_DIRECT_POINTERS_COUNT;
+    uint32_t indirect_pointers[INDIRECT_POINTERS_PER_BLOCK];
+
+    if (dir_inode->indirect_block == INVALID_BLOCK) {
+        uint32_t indirect_block;
+        res = fs_allocate_data_block(disk, &indirect_block);
+        if (res != FS_OK) {
+            return res;
+        }
+
+        dir_inode->indirect_block = indirect_block;
+        *created_indirect_block = true;
+        memset(indirect_pointers, 0, sizeof(indirect_pointers));
+    } else {
+        if (dir_inode->indirect_block < USER_DATA_BLOCK_START || dir_inode->indirect_block >= MAXIMUM_BLOCKS) {
+            return FS_ERR_INVALID_BLOCK;
+        }
+
+        res = disk_read(disk, indirect_pointers, dir_inode->indirect_block);
+        if (res != FS_OK) {
+            return res;
+        }
+    }
+
+    uint32_t block = indirect_pointers[indirect_index];
+    if (block == INVALID_BLOCK) {
+        res = fs_allocate_data_block(disk, &block);
+        if (res != FS_OK) {
+            if (*created_indirect_block) {
+                fs_free_data_block(disk, dir_inode->indirect_block);
+                dir_inode->indirect_block = INVALID_BLOCK;
+                *created_indirect_block = false;
+            }
+            return res;
+        }
+
+        *created_data_block = true;
+        uint8_t empty_block[BLOCK_SIZE];
+        memset(empty_block, 0, sizeof(empty_block));
+        res = disk_write(disk, empty_block, block);
+
+        if (res != FS_OK) {
+            fs_free_data_block(disk, block);
+            *created_data_block = false;
+            if (*created_indirect_block) {
+                fs_free_data_block(disk, dir_inode->indirect_block);
+                dir_inode->indirect_block = INVALID_BLOCK;
+                *created_indirect_block = false;
+            }
+            return res;
+        }
+
+        indirect_pointers[indirect_index] = block;
+        res = disk_write(disk, indirect_pointers, dir_inode->indirect_block);
+
+        if (res != FS_OK) {
+            fs_free_data_block(disk, block);
+            *created_data_block = false;
+
+            if (*created_indirect_block) {
+                fs_free_data_block(disk, dir_inode->indirect_block);
+                dir_inode->indirect_block = INVALID_BLOCK;
+                *created_indirect_block = false;
+            }
+
+            return res;
+        }
+    }
+
+    if (block < USER_DATA_BLOCK_START || block >= MAXIMUM_BLOCKS) {
+        return FS_ERR_INVALID_BLOCK;
+    }
+    *physical_block = block;
+    return FS_OK;
+}
+
+static int directory_rollback_data_block(
+    Disk *disk, Inode *dir_inode, size_t logical_block_index, uint32_t physical_block, bool created_data_block, bool created_indirect_block) {
+    if (!created_data_block) {
+        return FS_OK;
+    }
+    // DIRECT
+    if (logical_block_index < INODE_DIRECT_POINTERS_COUNT) {
+        dir_inode->direct_blocks[logical_block_index] = INVALID_BLOCK;
+        return fs_free_data_block(disk, physical_block);
+    }
+    // INDIRECT
+    if (created_indirect_block) {
+        uint32_t indirect_block = dir_inode->indirect_block;
+        dir_inode->indirect_block = INVALID_BLOCK;
+        int data_res = fs_free_data_block(disk, physical_block);
+        int indirect_res = fs_free_data_block(disk, indirect_block);
+        if (data_res != FS_OK) {
+            return data_res;
+        }
+        return indirect_res;
+    }
+
+    uint32_t indirect_pointers[INDIRECT_POINTERS_PER_BLOCK];
+    int res = disk_read(disk, indirect_pointers, dir_inode->indirect_block);
+    if (res != FS_OK) {
+        return res;
+    }
+    size_t indirect_index = logical_block_index - INODE_DIRECT_POINTERS_COUNT;
+    indirect_pointers[indirect_index] = INVALID_BLOCK;
+    res = disk_write(disk, indirect_pointers, dir_inode->indirect_block);
+    if (res != FS_OK) {
+        return res;
+    }
+    return fs_free_data_block(disk, physical_block);
 }
 
 int directory_find_entry(Disk *disk, uint32_t dir_inode_number, const char *name, uint32_t *inode_number) {
@@ -155,7 +274,8 @@ int directory_add_entry(Disk *disk, uint32_t dir_inode_number, const char *name,
     size_t logical_block_index = entries_count / DIRECTORY_ENTRIES_PER_BLOCK;
     size_t entry_index = entries_count % DIRECTORY_ENTRIES_PER_BLOCK;
     uint32_t physical_block;
-    res = directory_ensure_data_block(disk, &dir_inode, logical_block_index, &physical_block);
+    bool created_data_block, created_indirect_block;
+    res = directory_ensure_data_block(disk, &dir_inode, logical_block_index, &physical_block, &created_data_block, &created_indirect_block);
     if (res != FS_OK) {
         return res;
     }
@@ -163,6 +283,7 @@ int directory_add_entry(Disk *disk, uint32_t dir_inode_number, const char *name,
     DirectoryEntry entries[DIRECTORY_ENTRIES_PER_BLOCK];
     res = disk_read(disk, entries, physical_block);
     if (res != FS_OK) {
+        directory_rollback_data_block(disk, &dir_inode, logical_block_index, physical_block, created_data_block, created_indirect_block);
         return res;
     }
 
@@ -171,14 +292,16 @@ int directory_add_entry(Disk *disk, uint32_t dir_inode_number, const char *name,
     new_entry.inode_number = inode_number;
     memcpy(new_entry.name, name, name_length + 1);
     entries[entry_index] = new_entry;
-    res = disk_wirte(disk, entries, physical_block);
+    res = disk_write(disk, entries, physical_block);
     if (res != FS_OK) {
+        directory_rollback_data_block(disk, &dir_inode, logical_block_index, physical_block, created_data_block, created_indirect_block);
         return res;
     }
 
     dir_inode.size += DIRECTORY_ENTRY_SIZE;
     res = inode_table_write(disk, dir_inode_number, &dir_inode);
     if (res != FS_OK) {
+        directory_rollback_data_block(disk, &dir_inode, logical_block_index, physical_block, created_data_block, created_indirect_block);
         return res;
     }
 

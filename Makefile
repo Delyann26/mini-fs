@@ -195,6 +195,7 @@ build/tests/test_directory.o: tests/test_directory.c \
                               include/inode_table.h \
                               include/disk.h \
                               include/common.h \
+                              include/bitmap.h \
                               | build/tests
 	$(CC) $(CFLAGS) -c tests/test_directory.c -o build/tests/test_directory.o
 

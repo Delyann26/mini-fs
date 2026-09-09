@@ -5,6 +5,7 @@
 #include "test_fs_alloc.h"
 #include "test_inode.h"
 #include "test_inode_table.h"
+#include "test_path.h"
 #include "test_superblock.h"
 #include <stdio.h>
 
@@ -17,6 +18,7 @@ int main(void) {
     test_fs_alloc();
     test_filesystem();
     test_directory();
+    test_path();
     printf("All tests passed\n");
     return 0;
 }

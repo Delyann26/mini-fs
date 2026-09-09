@@ -29,7 +29,8 @@ typedef enum Error {
     FS_ERR_INVALID_FILE_NAME,          // invalid file name
     FS_ERR_ENTRY_IS_NOT_DIRECTORY,     // entry type is not directory
     FS_ERR_ENTRY_ALREADY_EXISTS,       // entry exists
-    FS_ERR_DIRECTORY_IS_FULL           // full directory
+    FS_ERR_DIRECTORY_IS_FULL,          // full directory
+    FS_ERR_INVALID_PATH                // invalid path
 } Error;
 
 #define FS_MAGIC 0x12345678

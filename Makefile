@@ -1,6 +1,7 @@
 CC = gcc
 
 CFLAGS = -Wall -Wextra -g -Iinclude -Itests
+
 LDLIBS = -lm
 
 
@@ -8,23 +9,40 @@ main: build/src/main.o build/src/disk.o build/src/superblock.o
 	$(CC) $(CFLAGS) build/src/main.o build/src/disk.o build/src/superblock.o -o main
 
 
-build/src/main.o: src/main.c include/disk.h include/superblock.h include/common.h | build/src
+build/src/main.o: src/main.c \
+                  include/disk.h \
+                  include/superblock.h \
+                  include/common.h \
+                  | build/src
 	$(CC) $(CFLAGS) -c src/main.c -o build/src/main.o
 
 
-build/src/disk.o: src/disk.c include/disk.h include/common.h | build/src
+build/src/disk.o: src/disk.c \
+                  include/disk.h \
+                  include/common.h \
+                  | build/src
 	$(CC) $(CFLAGS) -c src/disk.c -o build/src/disk.o
 
 
-build/src/superblock.o: src/superblock.c include/superblock.h include/disk.h include/common.h | build/src
+build/src/superblock.o: src/superblock.c \
+                        include/superblock.h \
+                        include/disk.h \
+                        include/common.h \
+                        | build/src
 	$(CC) $(CFLAGS) -c src/superblock.c -o build/src/superblock.o
 
 
-build/src/bitmap.o: src/bitmap.c include/bitmap.h include/common.h | build/src
+build/src/bitmap.o: src/bitmap.c \
+                    include/bitmap.h \
+                    include/common.h \
+                    | build/src
 	$(CC) $(CFLAGS) -c src/bitmap.c -o build/src/bitmap.o
 
 
-build/src/inode.o: src/inode.c include/inode.h include/common.h | build/src
+build/src/inode.o: src/inode.c \
+                   include/inode.h \
+                   include/common.h \
+                   | build/src
 	$(CC) $(CFLAGS) -c src/inode.c -o build/src/inode.o
 
 
@@ -61,6 +79,7 @@ build/src/filesystem.o: src/filesystem.c \
 
 build/src/directory.o: src/directory.c \
                        include/directory.h \
+                       include/fs_alloc.h \
                        include/inode_table.h \
                        include/inode.h \
                        include/disk.h \
@@ -68,6 +87,16 @@ build/src/directory.o: src/directory.c \
                        | build/src
 	$(CC) $(CFLAGS) -c src/directory.c -o build/src/directory.o
 
+
+build/src/path.o: src/path.c \
+                  include/path.h \
+                  include/disk.h \
+                  include/directory.h \
+                  include/common.h \
+                  include/inode_table.h \
+                  include/inode.h \
+                  | build/src
+	$(CC) $(CFLAGS) -c src/path.c -o build/src/path.o
 
 
 test_all: build/tests/test_main.o \
@@ -86,25 +115,29 @@ test_all: build/tests/test_main.o \
           build/tests/test_filesystem.o \
           build/src/filesystem.o \
           build/tests/test_directory.o \
-          build/src/directory.o
+          build/src/directory.o \
+          build/tests/test_path.o \
+          build/src/path.o
 	$(CC) $(CFLAGS) build/tests/test_main.o \
-	                    build/tests/test_disk.o \
-	                    build/src/disk.o \
-	                    build/tests/test_superblock.o \
-	                    build/src/superblock.o \
-	                    build/tests/test_bitmap.o \
-	                    build/src/bitmap.o \
-	                    build/tests/test_inode.o \
-	                    build/src/inode.o \
-	                    build/tests/test_inode_table.o \
-	                    build/src/inode_table.o \
-	                    build/tests/test_fs_alloc.o \
-	                    build/src/fs_alloc.o \
-	                    build/tests/test_filesystem.o \
-	                    build/src/filesystem.o \
-	                    build/tests/test_directory.o \
-	                    build/src/directory.o \
-	                    -o test_all $(LDLIBS)
+	               build/tests/test_disk.o \
+	               build/src/disk.o \
+	               build/tests/test_superblock.o \
+	               build/src/superblock.o \
+	               build/tests/test_bitmap.o \
+	               build/src/bitmap.o \
+	               build/tests/test_inode.o \
+	               build/src/inode.o \
+	               build/tests/test_inode_table.o \
+	               build/src/inode_table.o \
+	               build/tests/test_fs_alloc.o \
+	               build/src/fs_alloc.o \
+	               build/tests/test_filesystem.o \
+	               build/src/filesystem.o \
+	               build/tests/test_directory.o \
+	               build/src/directory.o \
+	               build/tests/test_path.o \
+	               build/src/path.o \
+	               -o test_all $(LDLIBS)
 
 
 build/tests/test_main.o: tests/test_main.c \
@@ -116,6 +149,7 @@ build/tests/test_main.o: tests/test_main.c \
                          tests/test_fs_alloc.h \
                          tests/test_filesystem.h \
                          tests/test_directory.h \
+                         tests/test_path.h \
                          | build/tests
 	$(CC) $(CFLAGS) -c tests/test_main.c -o build/tests/test_main.o
 
@@ -179,6 +213,7 @@ build/tests/test_filesystem.o: tests/test_filesystem.c \
                                include/common.h \
                                include/disk.h \
                                include/filesystem.h \
+                               include/fs_alloc.h \
                                include/inode.h \
                                include/inode_table.h \
                                include/superblock.h \
@@ -198,6 +233,20 @@ build/tests/test_directory.o: tests/test_directory.c \
                               include/bitmap.h \
                               | build/tests
 	$(CC) $(CFLAGS) -c tests/test_directory.c -o build/tests/test_directory.o
+
+
+build/tests/test_path.o: tests/test_path.c \
+                         tests/test_path.h \
+                         include/common.h \
+                         include/directory.h \
+                         include/disk.h \
+                         include/filesystem.h \
+                         include/fs_alloc.h \
+                         include/inode.h \
+                         include/inode_table.h \
+                         include/path.h \
+                         | build/tests
+	$(CC) $(CFLAGS) -c tests/test_path.c -o build/tests/test_path.o
 
 
 test: test_all

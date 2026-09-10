@@ -73,6 +73,8 @@ build/src/filesystem.o: src/filesystem.c \
                         include/inode_table.h \
                         include/disk.h \
                         include/superblock.h \
+                        include/path.h \
+                        include/directory.h \
                         | build/src
 	$(CC) $(CFLAGS) -c src/filesystem.c -o build/src/filesystem.o
 
@@ -217,6 +219,8 @@ build/tests/test_filesystem.o: tests/test_filesystem.c \
                                include/inode.h \
                                include/inode_table.h \
                                include/superblock.h \
+                               include/path.h \
+                               include/directory.h \
                                | build/tests
 	$(CC) $(CFLAGS) -c tests/test_filesystem.c -o build/tests/test_filesystem.o
 

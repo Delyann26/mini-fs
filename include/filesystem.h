@@ -16,4 +16,7 @@ int filesystem_format(const char *path);
 int filesystem_mount(FileSystem *fs, const char *path);
 int filesystem_unmount(FileSystem *fs);
 
+int filesystem_create_file(FileSystem *fs, const char *path);
+int filesystem_create_directory(FileSystem *fs, const char *path);
+
 #endif

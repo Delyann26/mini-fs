@@ -2,10 +2,13 @@
 
 #include "bitmap.h"
 #include "common.h"
+#include "directory.h"
 #include "disk.h"
 #include "filesystem.h"
+#include "fs_alloc.h"
 #include "inode.h"
 #include "inode_table.h"
+#include "path.h"
 #include "superblock.h"
 #include <assert.h>
 #include <stdint.h>
@@ -334,6 +337,260 @@ static void test_filesystem_unmount_when_not_mounted(void) {
     assert(fs.disk.fd == -1);
 }
 
+static uint32_t create_test_directory(Disk *disk, uint32_t parent_inode_number, const char *name) {
+    uint32_t inode_number;
+    assert(fs_allocate_inode(disk, &inode_number) == FS_OK);
+
+    uint32_t data_block;
+    assert(fs_allocate_data_block(disk, &data_block) == FS_OK);
+
+    uint8_t empty_block[BLOCK_SIZE];
+    memset(empty_block, 0, sizeof(empty_block));
+    assert(disk_write(disk, empty_block, data_block) == FS_OK);
+
+    Inode inode;
+    assert(inode_init(&inode) == FS_OK);
+    inode.type = INODE_TYPE_DIRECTORY;
+    inode.direct_blocks[0] = data_block;
+    assert(inode_table_write(disk, inode_number, &inode) == FS_OK);
+    assert(directory_add_entry(disk, parent_inode_number, name, inode_number) == FS_OK);
+    return inode_number;
+}
+
+static void test_filesystem_create_file_root(void) {
+    cleanup_test_disk();
+    assert(filesystem_format(TEST_DISK_PATH) == FS_OK);
+
+    FileSystem fs;
+    assert(filesystem_init(&fs) == FS_OK);
+    assert(filesystem_mount(&fs, TEST_DISK_PATH) == FS_OK);
+    assert(filesystem_create_file(&fs, "/hello.txt") == FS_OK);
+
+    uint32_t inode_number;
+    assert(resolve_path(&fs.disk, "/hello.txt", &inode_number) == FS_OK);
+    assert(inode_number != ROOT_INODE);
+
+    Inode inode;
+    assert(inode_table_read(&fs.disk, inode_number, &inode) == FS_OK);
+    assert(inode.type == INODE_TYPE_FILE);
+    assert(inode.size == 0);
+    for (size_t i = 0; i < INODE_DIRECT_POINTERS_COUNT; i++) {
+        assert(inode.direct_blocks[i] == INVALID_BLOCK);
+    }
+    assert(inode.indirect_block == INVALID_BLOCK);
+    assert(filesystem_unmount(&fs) == FS_OK);
+    cleanup_test_disk();
+}
+
+static void test_filesystem_create_file_directory_entry(void) {
+    cleanup_test_disk();
+    assert(filesystem_format(TEST_DISK_PATH) == FS_OK);
+
+    FileSystem fs;
+    assert(filesystem_init(&fs) == FS_OK);
+    assert(filesystem_mount(&fs, TEST_DISK_PATH) == FS_OK);
+    assert(filesystem_create_file(&fs, "/hello.txt") == FS_OK);
+
+    uint32_t inode_number;
+    assert(directory_find_entry(&fs.disk, ROOT_INODE, "hello.txt", &inode_number) == FS_OK);
+
+    Inode inode;
+    assert(inode_table_read(&fs.disk, inode_number, &inode) == FS_OK);
+    assert(inode.type == INODE_TYPE_FILE);
+    assert(inode.size == 0);
+    assert(filesystem_unmount(&fs) == FS_OK);
+    cleanup_test_disk();
+}
+
+static void test_filesystem_create_file_parent_size(void) {
+    cleanup_test_disk();
+    assert(filesystem_format(TEST_DISK_PATH) == FS_OK);
+
+    FileSystem fs;
+    assert(filesystem_init(&fs) == FS_OK);
+    assert(filesystem_mount(&fs, TEST_DISK_PATH) == FS_OK);
+
+    Inode root_before;
+    assert(inode_table_read(&fs.disk, ROOT_INODE, &root_before) == FS_OK);
+    assert(filesystem_create_file(&fs, "/hello.txt") == FS_OK);
+
+    Inode root_after;
+    assert(inode_table_read(&fs.disk, ROOT_INODE, &root_after) == FS_OK);
+    assert(root_after.size == root_before.size + DIRECTORY_ENTRY_SIZE);
+    assert(filesystem_unmount(&fs) == FS_OK);
+    cleanup_test_disk();
+}
+
+static void test_filesystem_create_file_nested(void) {
+    cleanup_test_disk();
+    assert(filesystem_format(TEST_DISK_PATH) == FS_OK);
+
+    FileSystem fs;
+    assert(filesystem_init(&fs) == FS_OK);
+    assert(filesystem_mount(&fs, TEST_DISK_PATH) == FS_OK);
+
+    uint32_t docs_inode = create_test_directory(&fs.disk, ROOT_INODE, "docs");
+    assert(filesystem_create_file(&fs, "/docs/file.txt") == FS_OK);
+    uint32_t file_inode;
+    assert(directory_find_entry(&fs.disk, docs_inode, "file.txt", &file_inode) == FS_OK);
+    Inode inode;
+    assert(inode_table_read(&fs.disk, file_inode, &inode) == FS_OK);
+    assert(inode.type == INODE_TYPE_FILE);
+    assert(inode.size == 0);
+    assert(filesystem_unmount(&fs) == FS_OK);
+    cleanup_test_disk();
+}
+
+static void test_filesystem_create_file_deeply_nested(void) {
+    cleanup_test_disk();
+    assert(filesystem_format(TEST_DISK_PATH) == FS_OK);
+
+    FileSystem fs;
+    assert(filesystem_init(&fs) == FS_OK);
+    assert(filesystem_mount(&fs, TEST_DISK_PATH) == FS_OK);
+
+    uint32_t docs_inode = create_test_directory(&fs.disk, ROOT_INODE, "docs");
+    uint32_t projects_inode = create_test_directory(&fs.disk, docs_inode, "projects");
+    uint32_t src_inode = create_test_directory(&fs.disk, projects_inode, "src");
+    assert(filesystem_create_file(&fs, "/docs/projects/src/main.c") == FS_OK);
+    uint32_t file_inode;
+    assert(directory_find_entry(&fs.disk, src_inode, "main.c", &file_inode) == FS_OK);
+    Inode inode;
+    assert(inode_table_read(&fs.disk, file_inode, &inode) == FS_OK);
+    assert(inode.type == INODE_TYPE_FILE);
+    assert(inode.size == 0);
+    assert(filesystem_unmount(&fs) == FS_OK);
+    cleanup_test_disk();
+}
+
+static void test_filesystem_create_file_duplicate(void) {
+    cleanup_test_disk();
+    assert(filesystem_format(TEST_DISK_PATH) == FS_OK);
+
+    FileSystem fs;
+    assert(filesystem_init(&fs) == FS_OK);
+    assert(filesystem_mount(&fs, TEST_DISK_PATH) == FS_OK);
+    assert(filesystem_create_file(&fs, "/file.txt") == FS_OK);
+    assert(filesystem_create_file(&fs, "/file.txt") == FS_ERR_ENTRY_ALREADY_EXISTS);
+    assert(filesystem_unmount(&fs) == FS_OK);
+
+    cleanup_test_disk();
+}
+
+static void test_filesystem_create_file_duplicate_preserves_inode(void) {
+    cleanup_test_disk();
+    assert(filesystem_format(TEST_DISK_PATH) == FS_OK);
+
+    FileSystem fs;
+    assert(filesystem_init(&fs) == FS_OK);
+    assert(filesystem_mount(&fs, TEST_DISK_PATH) == FS_OK);
+    assert(filesystem_create_file(&fs, "/file.txt") == FS_OK);
+    uint32_t first_inode;
+    assert(resolve_path(&fs.disk, "/file.txt", &first_inode) == FS_OK);
+    assert(filesystem_create_file(&fs, "/file.txt") == FS_ERR_ENTRY_ALREADY_EXISTS);
+
+    uint32_t second_inode;
+    assert(resolve_path(&fs.disk, "/file.txt", &second_inode) == FS_OK);
+    assert(first_inode == second_inode);
+    assert(filesystem_unmount(&fs) == FS_OK);
+    cleanup_test_disk();
+}
+
+static void test_filesystem_create_file_missing_parent(void) {
+    cleanup_test_disk();
+    assert(filesystem_format(TEST_DISK_PATH) == FS_OK);
+
+    FileSystem fs;
+    assert(filesystem_init(&fs) == FS_OK);
+    assert(filesystem_mount(&fs, TEST_DISK_PATH) == FS_OK);
+    assert(filesystem_create_file(&fs, "/missing/file.txt") == FS_ERR_INVALID_PATH);
+    assert(filesystem_unmount(&fs) == FS_OK);
+
+    cleanup_test_disk();
+}
+
+static void test_filesystem_create_file_parent_is_file(void) {
+    cleanup_test_disk();
+    assert(filesystem_format(TEST_DISK_PATH) == FS_OK);
+
+    FileSystem fs;
+    assert(filesystem_init(&fs) == FS_OK);
+    assert(filesystem_mount(&fs, TEST_DISK_PATH) == FS_OK);
+    assert(filesystem_create_file(&fs, "/file.txt") == FS_OK);
+    assert(filesystem_create_file(&fs, "/file.txt/child.txt") == FS_ERR_ENTRY_IS_NOT_DIRECTORY);
+    assert(filesystem_unmount(&fs) == FS_OK);
+
+    cleanup_test_disk();
+}
+
+static void test_filesystem_create_file_invalid_paths(void) {
+    cleanup_test_disk();
+    assert(filesystem_format(TEST_DISK_PATH) == FS_OK);
+
+    FileSystem fs;
+    assert(filesystem_init(&fs) == FS_OK);
+    assert(filesystem_mount(&fs, TEST_DISK_PATH) == FS_OK);
+    assert(filesystem_create_file(&fs, "") == FS_ERR_INVALID_PATH);
+    assert(filesystem_create_file(&fs, "/") == FS_ERR_INVALID_PATH);
+    assert(filesystem_create_file(&fs, "file.txt") == FS_ERR_INVALID_PATH);
+    assert(filesystem_create_file(&fs, "/file.txt/") == FS_ERR_INVALID_PATH);
+    assert(filesystem_create_file(&fs, "/dir//file.txt") == FS_ERR_INVALID_PATH);
+    assert(filesystem_unmount(&fs) == FS_OK);
+
+    cleanup_test_disk();
+}
+
+static void test_filesystem_create_file_null_arguments(void) {
+    cleanup_test_disk();
+    assert(filesystem_format(TEST_DISK_PATH) == FS_OK);
+
+    FileSystem fs;
+    assert(filesystem_init(&fs) == FS_OK);
+    assert(filesystem_mount(&fs, TEST_DISK_PATH) == FS_OK);
+    assert(filesystem_create_file(NULL, "/file.txt") == FS_ERR_NULL);
+    assert(filesystem_create_file(&fs, NULL) == FS_ERR_NULL);
+    assert(filesystem_unmount(&fs) == FS_OK);
+
+    cleanup_test_disk();
+}
+
+static void test_filesystem_create_file_not_mounted(void) {
+    FileSystem fs;
+    assert(filesystem_init(&fs) == FS_OK);
+    assert(filesystem_create_file(&fs, "/file.txt") == FS_ERR_FILESYSTEM_NOT_MOUNTED);
+}
+
+static void test_filesystem_create_multiple_files(void) {
+    cleanup_test_disk();
+    assert(filesystem_format(TEST_DISK_PATH) == FS_OK);
+
+    FileSystem fs;
+    assert(filesystem_init(&fs) == FS_OK);
+    assert(filesystem_mount(&fs, TEST_DISK_PATH) == FS_OK);
+    assert(filesystem_create_file(&fs, "/a.txt") == FS_OK);
+    assert(filesystem_create_file(&fs, "/b.txt") == FS_OK);
+    assert(filesystem_create_file(&fs, "/c.txt") == FS_OK);
+
+    uint32_t a_inode;
+    uint32_t b_inode;
+    uint32_t c_inode;
+
+    assert(resolve_path(&fs.disk, "/a.txt", &a_inode) == FS_OK);
+    assert(resolve_path(&fs.disk, "/b.txt", &b_inode) == FS_OK);
+    assert(resolve_path(&fs.disk, "/c.txt", &c_inode) == FS_OK);
+
+    assert(a_inode != b_inode);
+    assert(a_inode != c_inode);
+    assert(b_inode != c_inode);
+
+    Inode root;
+    assert(inode_table_read(&fs.disk, ROOT_INODE, &root) == FS_OK);
+    assert(root.size == 3 * DIRECTORY_ENTRY_SIZE);
+    assert(filesystem_unmount(&fs) == FS_OK);
+
+    cleanup_test_disk();
+}
+
 void test_filesystem(void) {
     test_filesystem_format_null_path();
     test_filesystem_format_creates_valid_disk();
@@ -353,6 +610,20 @@ void test_filesystem(void) {
     test_filesystem_unmount();
     test_filesystem_unmount_null();
     test_filesystem_unmount_when_not_mounted();
+
+    test_filesystem_create_file_root();
+    test_filesystem_create_file_directory_entry();
+    test_filesystem_create_file_parent_size();
+    test_filesystem_create_file_nested();
+    test_filesystem_create_file_deeply_nested();
+    test_filesystem_create_file_duplicate();
+    test_filesystem_create_file_duplicate_preserves_inode();
+    test_filesystem_create_file_missing_parent();
+    test_filesystem_create_file_parent_is_file();
+    test_filesystem_create_file_invalid_paths();
+    test_filesystem_create_file_null_arguments();
+    test_filesystem_create_file_not_mounted();
+    test_filesystem_create_multiple_files();
 
     printf("Filesystem: All tests passed!\n");
 }

@@ -1,9 +1,11 @@
 #include "filesystem.h"
 #include "bitmap.h"
 #include "common.h"
+#include "directory.h"
 #include "fs_alloc.h"
 #include "inode.h"
 #include "inode_table.h"
+#include "path.h"
 #include "string.h"
 #include <unistd.h>
 
@@ -130,4 +132,116 @@ int filesystem_unmount(FileSystem *fs) {
     memset(&fs->superblock, 0, sizeof(fs->superblock));
     fs->mounted = false;
     return res;
+}
+
+int filesystem_create_file(FileSystem *fs, const char *path) {
+    if (fs == NULL || path == NULL) {
+        return FS_ERR_NULL;
+    }
+    if (fs->mounted == false) {
+        return FS_ERR_FILESYSTEM_NOT_MOUNTED;
+    }
+    uint32_t parent_inode_number;
+    char new_file_name[DIRECTORY_NAME_SIZE];
+    int res = resolve_parent_path(&fs->disk, path, &parent_inode_number, new_file_name);
+    if (res != FS_OK) {
+        return res;
+    }
+    uint32_t new_file_inode_number;
+    res = directory_find_entry(&fs->disk, parent_inode_number, new_file_name, &new_file_inode_number);
+    if (res == FS_OK) {
+        return FS_ERR_ENTRY_ALREADY_EXISTS;
+    }
+    if (res != FS_ERR_ENTRY_NOT_FOUND) {
+        return res;
+    }
+    res = fs_allocate_inode(&fs->disk, &new_file_inode_number);
+    if (res != FS_OK) {
+        return res;
+    }
+    Inode inode;
+    res = inode_init(&inode);
+    if (res != FS_OK) {
+        fs_free_inode(&fs->disk, new_file_inode_number);
+        return res;
+    }
+    inode.type = INODE_TYPE_FILE;
+    res = inode_table_write(&fs->disk, new_file_inode_number, &inode);
+    if (res != FS_OK) {
+        fs_free_inode(&fs->disk, new_file_inode_number);
+        return res;
+    }
+    res = directory_add_entry(&fs->disk, parent_inode_number, new_file_name, new_file_inode_number);
+    if (res != FS_OK) {
+        inode_init(&inode);
+        inode_table_write(&fs->disk, new_file_inode_number, &inode);
+        fs_free_inode(&fs->disk, new_file_inode_number);
+        return res;
+    }
+    return FS_OK;
+}
+
+int filesystem_create_directory(FileSystem *fs, const char *path) {
+    if (fs == NULL || path == NULL) {
+        return FS_ERR_NULL;
+    }
+    if (fs->mounted == false) {
+        return FS_ERR_FILESYSTEM_NOT_MOUNTED;
+    }
+    uint32_t parent_inode_number;
+    char new_directory_name[DIRECTORY_NAME_SIZE];
+    int res = resolve_parent_path(&fs->disk, path, &parent_inode_number, new_directory_name);
+    if (res != FS_OK) {
+        return res;
+    }
+    uint32_t new_directory_inode_number;
+    uint32_t new_directory_data_block_number;
+    res = directory_find_entry(&fs->disk, parent_inode_number, new_directory_name, &new_directory_inode_number);
+    if (res == FS_OK) {
+        return FS_ERR_ENTRY_ALREADY_EXISTS;
+    }
+    if (res != FS_ERR_ENTRY_NOT_FOUND) {
+        return res;
+    }
+    res = fs_allocate_inode(&fs->disk, &new_directory_inode_number);
+    if (res != FS_OK) {
+        return res;
+    }
+    res = fs_allocate_data_block(&fs->disk, &new_directory_data_block_number);
+    if (res != FS_OK) {
+        fs_free_inode(&fs->disk, new_directory_inode_number);
+        return res;
+    }
+    uint8_t empty_block[BLOCK_SIZE];
+    memset(empty_block, 0, sizeof(empty_block));
+    res = disk_write(&fs->disk, empty_block, new_directory_data_block_number);
+    if (res != FS_OK) {
+        fs_free_data_block(&fs->disk, new_directory_data_block_number);
+        fs_free_inode(&fs->disk, new_directory_inode_number);
+        return res;
+    }
+    Inode inode;
+    res = inode_init(&inode);
+    if (res != FS_OK) {
+        fs_free_data_block(&fs->disk, new_directory_data_block_number);
+        fs_free_inode(&fs->disk, new_directory_inode_number);
+        return res;
+    }
+    inode.direct_blocks[0] = new_directory_data_block_number;
+    inode.type = INODE_TYPE_DIRECTORY;
+    res = inode_table_write(&fs->disk, new_directory_inode_number, &inode);
+    if (res != FS_OK) {
+        fs_free_data_block(&fs->disk, new_directory_data_block_number);
+        fs_free_inode(&fs->disk, new_directory_inode_number);
+        return res;
+    }
+    res = directory_add_entry(&fs->disk, parent_inode_number, new_directory_name, new_directory_inode_number);
+    if (res != FS_OK) {
+        inode_init(&inode);
+        inode_table_write(&fs->disk, new_directory_inode_number, &inode);
+        fs_free_data_block(&fs->disk, new_directory_data_block_number);
+        fs_free_inode(&fs->disk, new_directory_inode_number);
+        return res;
+    }
+    return FS_OK;
 }

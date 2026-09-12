@@ -557,7 +557,7 @@ static void test_filesystem_create_file_null_arguments(void) {
 static void test_filesystem_create_file_not_mounted(void) {
     FileSystem fs;
     assert(filesystem_init(&fs) == FS_OK);
-    assert(filesystem_create_file(&fs, "/file.txt") == FS_ERR_FILESYSTEM_NOT_MOUNTED);
+    assert(filesystem_create_file(&fs, "/file.txt") == FS_ERR_NOT_MOUNTED);
 }
 
 static void test_filesystem_create_multiple_files(void) {
@@ -962,7 +962,7 @@ static void test_filesystem_create_directory_null_arguments(void) {
 static void test_filesystem_create_directory_not_mounted(void) {
     FileSystem fs;
     assert(filesystem_init(&fs) == FS_OK);
-    assert(filesystem_create_directory(&fs, "/docs") == FS_ERR_FILESYSTEM_NOT_MOUNTED);
+    assert(filesystem_create_directory(&fs, "/docs") == FS_ERR_NOT_MOUNTED);
 }
 
 static void test_filesystem_create_directory_persists_after_remount(void) {
